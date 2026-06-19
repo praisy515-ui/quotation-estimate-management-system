@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search, UserPlus, Phone, Mail, MapPin, DollarSign, Bookmark, X, Edit2, Trash2 } from 'lucide-react';
 import { initialCustomers } from '../dummyData';
+import { supabase } from '../supabaseClient';
 
 export default function Customers() {
   const [searchParams] = useSearchParams();
-  const [customers, setCustomers] = useState(initialCustomers);
+  const [customers, setCustomers] = useState([]);
   const [search, setSearch] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -20,17 +21,33 @@ export default function Customers() {
   const [budget, setBudget] = useState('');
   const [status, setStatus] = useState('Active');
 
+  // Fetch Customers from Supabase on mount
   useEffect(() => {
+    fetchCustomers();
     if (searchParams.get('action') === 'add') {
       setShowAddForm(true);
     }
   }, [searchParams]);
 
-  const filteredCustomers = customers.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.email.toLowerCase().includes(search.toLowerCase()) ||
-    c.id.toLowerCase().includes(search.toLowerCase())
-  );
+  const fetchCustomers = async () => {
+    if (!supabase) {
+      setCustomers(initialCustomers);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('*')
+        .order('id', { ascending: false });
+
+      if (error) throw error;
+      setCustomers(data || []);
+    } catch (err) {
+      console.warn("Failed fetching from Supabase, loading fallback dummy data: ", err.message);
+      setCustomers(initialCustomers);
+    }
+  };
 
   const resetForm = () => {
     setName('');
@@ -42,7 +59,7 @@ export default function Customers() {
     setStatus('Active');
   };
 
-  const handleAddCustomer = (e) => {
+  const handleAddCustomer = async (e) => {
     e.preventDefault();
     if (!name || !email) return;
 
@@ -57,13 +74,22 @@ export default function Customers() {
       status
     };
 
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('customers').insert([newCust]);
+        if (error) throw error;
+      } catch (err) {
+        console.error("Failed storing customer to Supabase: ", err.message);
+      }
+    }
+
     setCustomers([newCust, ...customers]);
     setShowAddForm(false);
     resetForm();
   };
 
   const startEdit = (customer, e) => {
-    e.stopPropagation(); // Prevent opening detail card
+    e.stopPropagation();
     setEditingCustomer(customer);
     setName(customer.name);
     setEmail(customer.email);
@@ -74,46 +100,68 @@ export default function Customers() {
     setStatus(customer.status);
   };
 
-  const handleSaveEdit = (e) => {
+  const handleSaveEdit = async (e) => {
     e.preventDefault();
-    setCustomers(customers.map(c => c.id === editingCustomer.id ? {
-      ...c,
+    const updatedCust = {
       name,
       email,
-      phone,
-      address,
+      phone: phone || '+1 (555) 000-0000',
+      address: address || 'N/A',
       projectType,
       budget: budget ? `$${Number(budget).toLocaleString()}` : 'TBD',
       status
-    } : c));
-    
-    // Also update selected view if open
+    };
+
+    if (supabase) {
+      try {
+        const { error } = await supabase
+          .from('customers')
+          .update(updatedCust)
+          .eq('id', editingCustomer.id);
+        if (error) throw error;
+      } catch (err) {
+        console.error("Failed updating customer on Supabase: ", err.message);
+      }
+    }
+
+    const updatedList = customers.map(c => c.id === editingCustomer.id ? { ...c, ...updatedCust } : c);
+    setCustomers(updatedList);
+
     if (selectedCustomer?.id === editingCustomer.id) {
-      setSelectedCustomer({
-        id: editingCustomer.id,
-        name,
-        email,
-        phone,
-        address,
-        projectType,
-        budget: budget ? `$${Number(budget).toLocaleString()}` : 'TBD',
-        status
-      });
+      setSelectedCustomer({ id: editingCustomer.id, ...updatedCust });
     }
 
     setEditingCustomer(null);
     resetForm();
   };
 
-  const handleDelete = (id, e) => {
-    e.stopPropagation(); // Prevent opening detail card
+  const handleDelete = async (id, e) => {
+    e.stopPropagation();
     if (window.confirm(`Are you sure you want to remove customer profile ${id}?`)) {
+      if (supabase) {
+        try {
+          const { error } = await supabase
+            .from('customers')
+            .delete()
+            .eq('id', id);
+          if (error) throw error;
+        } catch (err) {
+          console.error("Failed deleting customer on Supabase: ", err.message);
+        }
+      }
+
       setCustomers(customers.filter(c => c.id !== id));
       if (selectedCustomer?.id === id) {
         setSelectedCustomer(null);
       }
     }
   };
+
+  const filteredCustomers = customers.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase()) ||
+    c.email.toLowerCase().includes(search.toLowerCase()) ||
+    c.id.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px', position: 'relative' }}>

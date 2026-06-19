@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HelpCircle, Plus, Send, Phone, User, MessageSquare } from 'lucide-react';
 import { initialEnquiries } from '../dummyData';
+import { supabase } from '../supabaseClient';
 
 export default function Enquiries() {
-  const [enquiries, setEnquiries] = useState(initialEnquiries);
+  const [enquiries, setEnquiries] = useState([]);
   const [showForm, setShowForm] = useState(false);
 
   // Form states
@@ -14,22 +15,67 @@ export default function Enquiries() {
   const [roomType, setRoomType] = useState('Living Room');
   const [status, setStatus] = useState('New');
 
-  const handleAddEnquiry = (e) => {
+  useEffect(() => {
+    fetchEnquiries();
+  }, []);
+
+  const fetchEnquiries = async () => {
+    if (!supabase) {
+      setEnquiries(initialEnquiries);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('enquiries')
+        .select('*')
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+      setEnquiries(data || []);
+    } catch (err) {
+      console.warn("Failed fetching from Supabase, loading fallback dummy data: ", err.message);
+      setEnquiries(initialEnquiries);
+    }
+  };
+
+  const handleAddEnquiry = async (e) => {
     e.preventDefault();
     if (!customerName || !email) return;
 
     const newEnq = {
       id: `ENQ-20${enquiries.length + 1}`,
-      customerName,
+      customer_name: customerName,
       email,
       phone,
-      projectType,
-      roomType,
+      project_type: projectType,
+      room_type: roomType,
       status,
       date: new Date().toISOString().split('T')[0]
     };
 
-    setEnquiries([newEnq, ...enquiries]);
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('enquiries').insert([newEnq]);
+        if (error) throw error;
+      } catch (err) {
+        console.error("Failed saving enquiry to Supabase: ", err.message);
+      }
+    }
+
+    // Update state using camelCase matching fallback fields
+    const displayEnq = {
+      id: newEnq.id,
+      customerName: newEnq.customer_name,
+      email: newEnq.email,
+      phone: newEnq.phone,
+      projectType: newEnq.project_type,
+      roomType: newEnq.room_type,
+      status: newEnq.status,
+      date: newEnq.date
+    };
+
+    setEnquiries([displayEnq, ...enquiries]);
     setShowForm(false);
 
     // Reset
@@ -49,6 +95,11 @@ export default function Enquiries() {
       default: return 'badge-success';
     }
   };
+
+  // Helper to normalize Supabase underscore keys vs mock camelCase keys
+  const getDisplayName = (enq) => enq.customerName || enq.customer_name;
+  const getDisplayRoom = (enq) => enq.roomType || enq.room_type;
+  const getDisplayProject = (enq) => enq.projectType || enq.project_type;
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -89,12 +140,12 @@ export default function Enquiries() {
                     <td style={{ fontWeight: '600', color: 'var(--accent-gold)' }}>{enq.id}</td>
                     <td>
                       <div>
-                        <p style={{ fontWeight: '500' }}>{enq.customerName}</p>
+                        <p style={{ fontWeight: '500' }}>{getDisplayName(enq)}</p>
                         <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{enq.email}</p>
                       </div>
                     </td>
-                    <td>{enq.projectType}</td>
-                    <td>{enq.roomType}</td>
+                    <td>{getDisplayProject(enq)}</td>
+                    <td>{getDisplayRoom(enq)}</td>
                     <td>{enq.date}</td>
                     <td>
                       <span className={`badge ${getStatusBadgeClass(enq.status)}`}>

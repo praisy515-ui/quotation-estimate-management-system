@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Calendar as CalendarIcon, Clock, User, MapPin, Plus, CalendarRange, List, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { initialSiteVisits } from '../dummyData';
+import { supabase } from '../supabaseClient';
 
 export default function SiteVisits() {
   const [searchParams] = useSearchParams();
-  const [visits, setVisits] = useState(initialSiteVisits);
+  const [visits, setVisits] = useState([]);
   const [showForm, setShowForm] = useState(false);
-  const [viewMode, setViewMode] = useState('list'); // 'list' or 'calendar'
+  const [viewMode, setViewMode] = useState('list');
 
   // Form states
   const [customerName, setCustomerName] = useState('');
@@ -18,26 +19,66 @@ export default function SiteVisits() {
   const [status, setStatus] = useState('Scheduled');
 
   useEffect(() => {
+    fetchSiteVisits();
     if (searchParams.get('action') === 'schedule') {
       setShowForm(true);
     }
   }, [searchParams]);
 
-  const handleScheduleVisit = (e) => {
+  const fetchSiteVisits = async () => {
+    if (!supabase) {
+      setVisits(initialSiteVisits);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('site_visits')
+        .select('*')
+        .order('scheduled_date', { ascending: true });
+
+      if (error) throw error;
+      setVisits(data || []);
+    } catch (err) {
+      console.warn("Failed fetching from Supabase, loading fallback dummy data: ", err.message);
+      setVisits(initialSiteVisits);
+    }
+  };
+
+  const handleScheduleVisit = async (e) => {
     e.preventDefault();
     if (!customerName || !scheduledDate || !scheduledTime) return;
 
     const newVisit = {
       id: `SV-30${visits.length + 1}`,
-      customerName,
+      customer_name: customerName,
       address: address || 'TBD',
-      scheduledDate,
-      scheduledTime,
-      assignedDesigner,
+      scheduled_date: scheduledDate,
+      scheduled_time: scheduledTime,
+      assigned_designer: assignedDesigner,
       status
     };
 
-    setVisits([newVisit, ...visits]);
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('site_visits').insert([newVisit]);
+        if (error) throw error;
+      } catch (err) {
+        console.error("Failed saving visit to Supabase: ", err.message);
+      }
+    }
+
+    const displayVisit = {
+      id: newVisit.id,
+      customerName: newVisit.customer_name,
+      address: newVisit.address,
+      scheduledDate: newVisit.scheduled_date,
+      scheduledTime: newVisit.scheduled_time,
+      assignedDesigner: newVisit.assigned_designer,
+      status: newVisit.status
+    };
+
+    setVisits([...visits, displayVisit]);
     setShowForm(false);
 
     // Reset
@@ -55,7 +96,7 @@ export default function SiteVisits() {
 
   // Calendar rendering configurations (June 2026)
   const daysInMonth = 30;
-  const startOffset = 0; // June 1, 2026 is a Monday (0 offset if grid starts Monday)
+  const startOffset = 0;
   const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   const handleDayClick = (dayNum) => {
@@ -66,6 +107,12 @@ export default function SiteVisits() {
     setShowForm(true);
   };
 
+  // Helper to resolve Supabase underscores vs dummy camelCase
+  const getDisplayName = (v) => v.customerName || v.customer_name;
+  const getDisplayDate = (v) => v.scheduledDate || v.scheduled_date;
+  const getDisplayTime = (v) => v.scheduledTime || v.scheduled_time;
+  const getDisplayDesigner = (v) => v.assignedDesigner || v.assigned_designer;
+
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {/* Header */}
@@ -75,7 +122,6 @@ export default function SiteVisits() {
           <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>Schedule, assign, and track physical site surveys and client home consultations.</p>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
-          {/* View Toggle */}
           <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
             <button
               onClick={() => setViewMode('list')}
@@ -117,7 +163,6 @@ export default function SiteVisits() {
         <div className="glass-panel" style={{ flex: 2, minWidth: '320px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           
           {viewMode === 'list' ? (
-            // LIST VIEW
             <>
               <h3 style={{ fontSize: '16px', color: 'var(--accent-gold)' }}>Consultation & Survey Tracking</h3>
               <div className="table-container" style={{ margin: 0 }}>
@@ -136,7 +181,7 @@ export default function SiteVisits() {
                     {visits.map((visit) => (
                       <tr key={visit.id}>
                         <td style={{ fontWeight: '600', color: 'var(--accent-gold)' }}>{visit.id}</td>
-                        <td style={{ fontWeight: '500' }}>{visit.customerName}</td>
+                        <td style={{ fontWeight: '500' }}>{getDisplayName(visit)}</td>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <MapPin size={12} style={{ color: 'var(--accent-gold)' }} />
@@ -145,11 +190,11 @@ export default function SiteVisits() {
                         </td>
                         <td>
                           <div>
-                            <p style={{ fontWeight: '500' }}>{visit.scheduledDate}</p>
-                            <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{visit.scheduledTime}</p>
+                            <p style={{ fontWeight: '500' }}>{getDisplayDate(visit)}</p>
+                            <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{getDisplayTime(visit)}</p>
                           </div>
                         </td>
-                        <td>{visit.assignedDesigner}</td>
+                        <td>{getDisplayDesigner(visit)}</td>
                         <td>
                           <span className={`badge ${getStatusBadgeClass(visit.status)}`}>
                             {visit.status}
@@ -162,7 +207,6 @@ export default function SiteVisits() {
               </div>
             </>
           ) : (
-            // CALENDAR VIEW
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
                 <h3 style={{ fontSize: '16px', color: 'var(--accent-gold)' }}>June 2026</h3>
@@ -172,20 +216,17 @@ export default function SiteVisits() {
                 </div>
               </div>
 
-              {/* Calendar Grid */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {/* Weekdays Header */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: 'var(--accent-gold)' }}>
                   {weekdays.map(d => <div key={d} style={{ padding: '8px 0' }}>{d}</div>)}
                 </div>
 
-                {/* Days Grid */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' }}>
                   {Array.from({ length: 35 }).map((_, idx) => {
                     const dayNum = idx + 1 - startOffset;
                     const isValidDay = dayNum > 0 && dayNum <= daysInMonth;
                     const dateStr = isValidDay ? `2026-06-${dayNum < 10 ? '0' + dayNum : dayNum}` : null;
-                    const dayVisits = visits.filter(v => v.scheduledDate === dateStr);
+                    const dayVisits = visits.filter(v => getDisplayDate(v) === dateStr);
 
                     return (
                       <div
@@ -212,7 +253,6 @@ export default function SiteVisits() {
                           </span>
                         )}
 
-                        {/* Plots visits */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', overflowY: 'auto', flex: 1 }}>
                           {dayVisits.map(v => (
                             <div
@@ -228,9 +268,9 @@ export default function SiteVisits() {
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap'
                               }}
-                              title={`${v.customerName} - ${v.scheduledTime}`}
+                              title={`${getDisplayName(v)} - ${getDisplayTime(v)}`}
                             >
-                              {v.customerName}
+                              {getDisplayName(v)}
                             </div>
                           ))}
                         </div>

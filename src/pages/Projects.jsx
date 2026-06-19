@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Plus, Briefcase, Calendar, CheckCircle, Clock, AlertCircle, X } from 'lucide-react';
 import { initialProjects } from '../dummyData';
+import { supabase } from '../supabaseClient';
 
 export default function Projects() {
   const [searchParams] = useSearchParams();
-  const [projects, setProjects] = useState(initialProjects);
+  const [projects, setProjects] = useState([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
 
@@ -18,12 +19,33 @@ export default function Projects() {
   const [status, setStatus] = useState('Planning');
 
   useEffect(() => {
+    fetchProjects();
     if (searchParams.get('action') === 'create') {
       setShowAddForm(true);
     }
   }, [searchParams]);
 
-  const handleAddProject = (e) => {
+  const fetchProjects = async () => {
+    if (!supabase) {
+      setProjects(initialProjects);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .order('id', { ascending: false });
+
+      if (error) throw error;
+      setProjects(data || []);
+    } catch (err) {
+      console.warn("Failed fetching from Supabase, loading fallback dummy data: ", err.message);
+      setProjects(initialProjects);
+    }
+  };
+
+  const handleAddProject = async (e) => {
     e.preventDefault();
     if (!name) return;
 
@@ -33,13 +55,34 @@ export default function Projects() {
       customer,
       type,
       progress: status === 'Completed' ? 100 : status === 'Planning' ? 0 : 25,
-      startDate: startDate || new Date().toISOString().split('T')[0],
-      endDate: endDate || '2026-12-31',
+      start_date: startDate || new Date().toISOString().split('T')[0],
+      end_date: endDate || '2026-12-31',
       status
     };
 
-    setProjects([newPrj, ...projects]);
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('projects').insert([newPrj]);
+        if (error) throw error;
+      } catch (err) {
+        console.error("Failed saving project to Supabase: ", err.message);
+      }
+    }
+
+    const displayPrj = {
+      id: newPrj.id,
+      name: newPrj.name,
+      customer: newPrj.customer,
+      type: newPrj.type,
+      progress: newPrj.progress,
+      startDate: newPrj.start_date,
+      endDate: newPrj.end_date,
+      status: newPrj.status
+    };
+
+    setProjects([displayPrj, ...projects]);
     setShowAddForm(false);
+    
     // Reset
     setName('');
     setStartDate('');
@@ -65,7 +108,6 @@ export default function Projects() {
     }
   };
 
-  // Timeline Steps based on progress
   const getTimelineSteps = (progress) => {
     return [
       { label: 'Design Board Approved', done: progress >= 15 },
@@ -75,6 +117,10 @@ export default function Projects() {
       { label: 'Client Handover', done: progress === 100 },
     ];
   };
+
+  // Helper to resolve Supabase underscores vs dummy camelCase
+  const getStartDate = (p) => p.startDate || p.start_date;
+  const getEndDate = (p) => p.endDate || p.end_date;
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -135,8 +181,8 @@ export default function Projects() {
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
-                <span>Start: {project.startDate}</span>
-                <span>End: {project.endDate}</span>
+                <span>Start: {getStartDate(project)}</span>
+                <span>End: {getEndDate(project)}</span>
               </div>
             </div>
           ))}
@@ -158,7 +204,6 @@ export default function Projects() {
                 <h4 style={{ fontSize: '18px', fontFamily: 'var(--font-sans)', fontWeight: '700', marginTop: '4px' }}>{selectedProject.name}</h4>
               </div>
 
-              {/* Timeline Tracker */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '10px' }}>
                 {getTimelineSteps(selectedProject.progress).map((step, idx) => (
                   <div key={idx} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
