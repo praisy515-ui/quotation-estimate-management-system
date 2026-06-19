@@ -1,0 +1,11 @@
+# Task: Navigate through QAEMS application
+
+## Progress Checklist:
+- [x] Open http://localhost:5176/
+- [ ] Login using 'Access Dashboard' button
+- [ ] Wait 2 seconds
+- [ ] Click 'Projects' link in the sidebar
+- [ ] Wait 2 seconds
+- [ ] Click 'Quotations' link in the sidebar
+- [ ] Wait 2 seconds
+- [ ] Report success
